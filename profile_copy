@@ -1,0 +1,272 @@
+#!/usr/bin/perl -w
+
+#  Program to make a copy of a batch profile
+
+#  Usage:  profile_copy <profile-id of source> <name of target>
+
+#  Hans Breitenlohner, University of Maryland, February 2015.
+
+#
+#  Handles the following tables:
+#    ole_bat_prcs_prf_t
+#    ole_bat_prcs_prfle_cnst_t
+#    ole_bat_prcs_dt_map_t
+#    ole_bat_prcs_dt_map_opt_t
+#    ole_bat_prcs_prf_mtch_point_t
+#    ole_bat_glbly_prct_fld_t
+#    ole_bat_prf_del_fld_t
+#    ole_bat_prf_rnm_fld_t
+#
+#  Does not handle the following:
+#    ole_bat_bib_mtch_pnt_t
+#    ole_bat_bib_wrk_unt_t
+#    ole_bat_inst_mtch_pnt_t
+#    ole_bat_inst_work_unt_t
+#    ole_bat_prcs_bib_stus_t
+#    ole_bat_prcs_filter_t
+#    ole_bat_prcs_prct_fld_t
+#
+#  The following tables do not seem relevant:
+#    ole_bat_prcs_fle_typ_t
+#    ole_bat_prcs_job_t
+#    ole_bat_prcs_mntn_field_t
+#    ole_bat_prcs_schedule_t
+#    ole_bat_prcs_t
+#    ole_bat_prcs_typ_t
+#
+#  This script is provided under the CC0 1.0 Universal license
+#  (http://creativecommons.org/publicdomain/zero/1.0/).
+
+use DBI;
+
+if ($#ARGV != 1) {
+    print "Usage:\n\t$0 <old_id> <new_name>\n";
+    exit 1;
+}
+
+$oldid = $ARGV[0];
+$newname = $ARGV[1];
+
+$old_num = $oldid;
+$new_num = 9999;
+my $last_old;
+my $last_new;
+
+setup_sql();
+
+copy_profile();
+
+copy_profile_constants();
+
+copy_mapping();
+
+copy_match_points();
+
+copy_protected_fields();
+
+copy_deleted_fields();
+
+copy_renamed_fields();
+
+print "done\n";
+
+sub setup_sql {
+# Modify username and password as appropriate
+$db = 'OLE';
+$username = 'OLE';
+$password = 'OLE';
+$source = "DBI:mysql:$db";
+$dbh = DBI->connect($source,$username,$password);
+}
+
+sub copy_profile {
+    my ($sql, $sth, $a, @b, $rows);
+    $sql = "select bat_prcs_prf_nm from ole_bat_prcs_prf_t where bat_prcs_prf_id = $oldid";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $a = $sth->fetchrow_hashref();
+    if (! defined $a) {
+        print "No profile with id $oldid found.\n";
+        exit 1;
+    }
+    $oldname = $a->{'bat_prcs_prf_nm'};
+    print "Old id: $oldid, name: $oldname\n";
+    $sql = "select count(*) from ole_bat_prcs_prf_t where bat_prcs_prf_nm = '$newname'";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    @b = $sth->fetchrow_array();
+    if ($b[0]>0) {
+        print "Profile name $newname already exists\n";
+        exit 1;
+    }
+
+    my $temp = 'profile_copy_temp';
+
+    $sql = "create temporary table $temp as select * from ole_bat_prcs_prf_t where bat_prcs_prf_id = $oldid";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $seq = get_next_sequence('ole_bat_prcs_prf_s');
+    $new_num = $seq;
+    $newobj = 'ole_bat_prcs_prf_t-' . $seq;
+    $sql = "update $temp set bat_prcs_prf_id = $seq, bat_prcs_prf_nm = '$newname', obj_id = '$newobj'";
+    # print "$sql\n";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $sql = "insert into ole_bat_prcs_prf_t select * from $temp";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $sql = "drop table $temp";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    print "New id: $new_num, name: $newname\n";
+
+}
+
+sub copy_profile_constants {
+    $r = copy_table('ole_bat_prcs_prfle_cnst_t',
+                    'ole_bat_prcs_prfle_cnst_s',
+                    'bat_prcs_prf_id',
+                    $old_num, $new_num,
+                    'ole_usr_def_val_id',
+                    'obj_id');
+    print "Profile constants: $r rows.\n";
+}
+
+sub copy_match_points {
+    $r = copy_table('ole_bat_prcs_prf_mtch_point_t',
+                    'ole_bat_prcs_prf_mtch_point_s',
+                    'bat_prcs_prf_id',
+                    $old_num, $new_num,
+                    'match_point_id',
+                    'obj_id');
+    print "Match points: $r rows.\n";
+}
+
+sub copy_mapping {
+    $r = copy_table('ole_bat_prcs_dt_map_t',
+                    'ole_bat_prcs_dt_map_s',
+                    'bat_prcs_prf_id',
+                    $old_num,$new_num,
+                    'ole_bat_prcs_dt_map_id',
+                    'obj_id');
+    print "Mapping table: $r rows.\n";
+    return unless $r>0;
+    $r = copy_table('ole_bat_prcs_dt_map_opt_t',
+                    'ole_bat_prcs_dt_map_opt_s',
+                    'ole_bat_prcs_dt_map_id',
+                    $last_old, $last_new,
+                    'batch_prcs_dt_map_opt_id',
+                    'obj_id');
+    print "Mapping opt: $r rows.\n";
+}
+
+sub copy_protected_fields {
+    $r = copy_table('ole_bat_glbly_prct_fld_t',
+                    'ole_bat_glbly_prct_fld_s',
+                    'bat_prcs_prf_id',
+                    $old_num, $new_num,
+                    'glby_prct_fld_id',
+                    '');
+    print "Globally protected fields: $r rows.\n";
+}
+
+sub copy_deleted_fields {
+    $r = copy_table('ole_bat_prf_del_fld_t',
+                    'ole_bat_prf_del_fld_s',
+                    'bat_prcs_prf_id',
+                    $old_num, $new_num,
+                    'bat_prf_del_id',
+                    'obj_id');
+    print "Deleted fields: $r rows.\n";
+}
+
+sub copy_renamed_fields {
+    $r = copy_table('ole_bat_prf_rnm_fld_t',
+                    'ole_bat_prf_rnm_fld_s',
+                    'bat_prcs_prf_id',
+                    $old_num, $new_num,
+                    'bat_prf_rnm_id',
+                    'obj_id');
+    print "Renamed fields: $r rows.\n";
+}
+
+sub copy_table {
+    my $table = shift;
+    my $sequence = shift;
+    my $datacol = shift;
+    my $oldval = shift;
+    my $newval = shift;
+    my $seqcol = shift;
+    my $objcol = shift;
+    my $temp = 'profile_copy_temp';
+
+
+
+
+    my ($sql, $sth, $a, $sql2, $sth2, $seq, $oldseq);
+    $sql = "create temporary table $temp as select * from $table where $datacol = $oldval";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $sql = "select * from $temp where $datacol = $oldval";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    # print "old table:\n";
+    while ($a = $sth->fetchrow_hashref()) {
+        my $p1 = $a->{uc $seqcol};
+        my $p2 = $a->{uc $datacol};
+        my $p3 = $a->{uc $objcol};
+        # print "$p1, $p2, $p3\n";
+        $oldseq = $p1;
+        $last_old = $oldseq;
+        $seq = get_next_sequence($sequence);
+        $last_new = $seq;
+        $newobj = $table . '-' . $seq;
+        if ($objcol) {
+            $obj_update = ", $objcol = '$newobj'";
+        } else {
+            $obj_update = '';
+        }
+        $sql2 = "update $temp set $seqcol = $seq, $datacol = $newval $obj_update where $seqcol = $oldseq";
+        # print "$sql2\n";
+        $sth2 = $dbh->prepare($sql2);
+        $sth2->execute();
+    }
+    $sql = "select * from $temp";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    # print "new table:\n";
+    while ($a = $sth->fetchrow_hashref()) {
+        my $p1 = $a->{uc $seqcol};
+        my $p2 = $a->{uc $datacol};
+        my $p3 = $a->{uc $objcol};
+        # print "$p1, $p2, $p3\n";
+    }
+    $sql = "insert into $table select * from $temp";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $rows = $sth->rows;
+    $sql = "drop table $temp";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    return $rows;
+}
+
+sub get_next_sequence {
+
+    my ($sql, $sth, @a);
+    $table = shift;
+    $sql = "insert into $table value (null)";
+    # print "$sql\n";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    $sql = "select last_insert_id()";
+    # print "$sql\n";
+    $sth = $dbh->prepare($sql);
+    $sth->execute();
+    @a = $sth->fetchrow_array();
+    # $res = $a[0];
+    # print "result = $res\n";
+    return $a[0];
+
+}
+
