@@ -11,12 +11,13 @@ The script does not currently copy every single piece of information in the
 profile -- see the comments in the script regarding which profile-related
 tables it does and does not handle. The script currently copies:
 
-* Constants and default values
-* Mappings
-* Match points,
-* Globally protected fields
-* Deleted fields
-* Renamed fields.
+* Main Section
+* Match Point
+* Constant and Default Values
+* Data Mapping
+* Globally Protected Fields
+* Delete Fields
+* Rename Fields
 
 The script has been tested in the following environment:
 
