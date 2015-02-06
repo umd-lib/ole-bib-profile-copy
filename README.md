@@ -1,9 +1,11 @@
 # ole-bib-profile-copy
 
-Perl script for copying OLE bibliographic profiles.
+Perl script for copying OLE bibliographic import profiles.
 
 The script interacts directly with the database tables to create a new OLE
-bibliographic profile from an existing profile.
+bibliographic import profile from an existing profile. This script is
+intended as a stop-gap measure until OLE-5759
+(https://jira.kuali.org/browse/OLE-5759) is completed.
 
 The script does not currently copy every single piece of information in the
 profile -- see the comments in the script regarding which profile-related
@@ -38,8 +40,8 @@ Copy the script to your OLE server, and run using the following command:
 ./profile_copy [old id] [new name]
 ```
 
-where [old id] is the "Batch Process Profile Id" of the bibliographic profile
-to copy, and [new name] is the name for the new profile.
+where [old id] is the "Batch Process Profile Id" of the bibliographic
+import profile to copy, and [new name] is the name for the new profile.
 
 ## License
 
